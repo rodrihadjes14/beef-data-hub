@@ -4,6 +4,9 @@ from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
 import re
+import logging
+logger = logging.getLogger("uvicorn.error")
+
 
 app = FastAPI(title="Beef Data Hub", version="0.1.0")
 
@@ -42,6 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # --- API KEY simple (MVP) ---
 import os
 from starlette.responses import JSONResponse
@@ -51,15 +55,26 @@ _PUBLIC_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
 
 @app.middleware("http")
 async def _api_key_guard(request, call_next):
-    # Permite paths públicos (health/docs)
-    if request.url.path in _PUBLIC_PATHS:
+    # Log siempre (diagnóstico)
+    path = request.url.path
+    key_present = "x-api-key" in request.headers
+    ua = request.headers.get("user-agent", "")[:80]
+    logger.info(f"[AUTH] path={path} key_present={key_present} ua={ua}")
+
+    if path in _PUBLIC_PATHS:
         return await call_next(request)
-    # Verifica header x-api-key en el resto
+
     key = request.headers.get("x-api-key")
     if key != API_KEY:
         return JSONResponse({"error": "unauthorized", "detail": "missing or invalid x-api-key"}, status_code=401)
+
     return await call_next(request)
 
+
+
+
+
+#-----------#
 
 @app.get("/")
 def root():
@@ -336,19 +351,16 @@ def iso_to_sio(d: str) -> str:
 
 @app.get("/siocarnes/novillo_by_date")
 def siocarnes_novillo_by_date(date: str = "2025-08-15", request: Request = None):
-    """
-    Versión 'friendly' que recibe fecha ISO y reusa el endpoint cacheado.
-    Loguea si llega el header x-api-key y la cantidad de filas devueltas.
-    """
     sio_day = iso_to_sio(date)
     res = siocarnes_novillo_cached(dia=sio_day)
     try:
         has_key = (request is not None) and ("x-api-key" in request.headers)
         ua = request.headers.get("user-agent", "")[:60] if request else ""
-        print(f"[DEBUG] /siocarnes/novillo_by_date date={date} count={res.get('count')} has_key={has_key} ua={ua}")
+        logger.info(f"[DEBUG] /siocarnes/novillo_by_date date={date} count={res.get('count')} has_key={has_key} ua={ua}")
     except Exception:
         pass
     return res
+
 
 
 
