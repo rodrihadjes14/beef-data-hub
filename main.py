@@ -666,3 +666,51 @@ def siocarnes_novillo_agg_compact(from_date: str, to_date: str, freq: str = "w",
         "last_k_groups": tail,
         "note": "Compact aggregation for Actions; use /siocarnes/novillo_agg for full payload."
     }
+
+    
+@app.get("/siocarnes/novillo_range_compact")
+def siocarnes_novillo_range_compact(from_date: str, to_date: str, n: int = 5):
+    """
+    Resumen compacto para un rango [from_date, to_date] (ISO YYYY-MM-DD).
+    - Devuelve ok, unidad, cantidad de días, stats (min/avg/max del precio_promedio)
+      y hasta n filas del principio y del final para referencia.
+    - Mantiene payload chico para Actions.
+    """
+    base = siocarnes_novillo_range(from_date=from_date, to_date=to_date, limit=10000)
+    rows = []
+    if isinstance(base, dict):
+        rows = base.get("data", []) or []
+
+    # Limitar n para payload pequeño
+    try:
+        n = max(1, min(int(n), 5))
+    except Exception:
+        n = 5
+
+    # Extraer valores numéricos del campo precio_promedio
+    vals = []
+    for r in rows:
+        v = r.get("precio_promedio")
+        if isinstance(v, (int, float)):
+            vals.append(float(v))
+
+    stats = {
+        "count_days": len(rows),
+        "min": min(vals) if vals else None,
+        "avg": (sum(vals) / len(vals)) if vals else None,
+        "max": max(vals) if vals else None,
+    }
+
+    head = rows[:n] if rows else []
+    tail = rows[-n:] if rows else []
+
+    return {
+        "ok": True,
+        "from": from_date,
+        "to": to_date,
+        "unit": "ARS/kg_canal",
+        "stats": stats,
+        "head": head,
+        "tail": tail,
+        "note": "Compact range summary; use /siocarnes/novillo_range for full series."
+    }
