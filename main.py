@@ -5,7 +5,37 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
 import re
 import logging
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+
 logger = logging.getLogger("uvicorn.error")
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    logger.warning(f"[VALIDATION] path={request.url.path} errors={exc.errors()[:2]}")
+    return JSONResponse(
+        {
+            "ok": False,
+            "error": "validation_error",
+            "path": str(request.url.path),
+            "details": exc.errors(),
+        },
+        status_code=200,  # <-- 200 para que Actions no lo descarte
+    )
+
+@app.exception_handler(Exception)
+async def _unhandled_error_handler(request: Request, exc: Exception):
+    logger.exception(f"[UNHANDLED] path={request.url.path} {exc.__class__.__name__}: {exc}")
+    return JSONResponse(
+        {
+            "ok": False,
+            "error": "server_error",
+            "path": str(request.url.path),
+            "detail": str(exc)[:200],  # limitar tamaño
+        },
+        status_code=200,  # <-- 200 para evitar 5xx en el cliente
+    )
+
 
 
 app = FastAPI(title="Beef Data Hub", version="0.1.0")
