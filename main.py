@@ -791,3 +791,14 @@ def siocarnes_novillo_range_compact(from_date: str, to_date: str, n: int = 5):
         "tail": tail,
         "note": "Compact range summary; use /siocarnes/novillo_range for full series."
     }
+
+    
+# Alias para evitar caché del cliente (mismo código, otro path)
+@app.get("/siocarnes/novillo_by_date_compact_v2")
+def siocarnes_novillo_by_date_compact_v2(
+    date: str = "2025-08-18",
+    n: int = 3,
+    unit: str = "vivo",
+):
+    # Reusamos la lógica del endpoint original
+    return siocarnes_novillo_by_date_compact(date=date, n=n, unit=unit)
