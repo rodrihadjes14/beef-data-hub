@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
 from fastapi import FastAPI
 from datetime import datetime
-
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Request
 import re
+
+app = FastAPI(title="Beef Data Hub", version="0.1.0")
 
 def to_number_ar(s: str) -> float | None:
     """
@@ -29,10 +32,7 @@ def to_number_ar(s: str) -> float | None:
         return None
 
 
-app = FastAPI(title="Beef Data Hub", version="0.1.0")
 
-
-from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,6 +42,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- API KEY simple (MVP) ---
+import os
+from starlette.responses import JSONResponse
+
+API_KEY = os.environ.get("BEEF_HUB_API_KEY", "dev-123")
+_PUBLIC_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
+
+@app.middleware("http")
+async def _api_key_guard(request, call_next):
+    # Permite paths públicos (health/docs)
+    if request.url.path in _PUBLIC_PATHS:
+        return await call_next(request)
+    # Verifica header x-api-key en el resto
+    key = request.headers.get("x-api-key")
+    if key != API_KEY:
+        return JSONResponse({"error": "unauthorized", "detail": "missing or invalid x-api-key"}, status_code=401)
+    return await call_next(request)
 
 
 @app.get("/")
@@ -318,12 +335,21 @@ def iso_to_sio(d: str) -> str:
     return f"{dt.day}/{dt.month}/{dt.year}"
 
 @app.get("/siocarnes/novillo_by_date")
-def siocarnes_novillo_by_date(date: str = "2025-08-15"):
+def siocarnes_novillo_by_date(date: str = "2025-08-15", request: Request = None):
     """
     Versión 'friendly' que recibe fecha ISO y reusa el endpoint cacheado.
+    Loguea si llega el header x-api-key y la cantidad de filas devueltas.
     """
     sio_day = iso_to_sio(date)
-    return siocarnes_novillo_cached(dia=sio_day)
+    res = siocarnes_novillo_cached(dia=sio_day)
+    try:
+        has_key = (request is not None) and ("x-api-key" in request.headers)
+        ua = request.headers.get("user-agent", "")[:60] if request else ""
+        print(f"[DEBUG] /siocarnes/novillo_by_date date={date} count={res.get('count')} has_key={has_key} ua={ua}")
+    except Exception:
+        pass
+    return res
+
 
 
 
