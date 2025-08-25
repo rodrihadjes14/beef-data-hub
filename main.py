@@ -631,3 +631,38 @@ def siocarnes_novillo_by_date_compact(date: str = "2025-08-15", n: int = 3):
         "first_rows": rows[:n],
         "note": "Compact response for Actions; use /siocarnes/novillo_by_date for full payload."
     }
+
+    
+@app.get("/siocarnes/novillo_agg_compact")
+def siocarnes_novillo_agg_compact(from_date: str, to_date: str, freq: str = "w", k: int = 3):
+    """
+    Agregación compacta para Actions:
+    - Reusa /siocarnes/novillo_agg (semanal o mensual).
+    - Devuelve solo los últimos k grupos y un promedio simple de esos grupos.
+    - Mantiene 'ok: true' y payload pequeño para evitar límites del Builder.
+    """
+    base = siocarnes_novillo_agg(from_date=from_date, to_date=to_date, freq=freq)
+    groups = []
+    if isinstance(base, dict):
+        groups = base.get("groups", []) or []
+    # Sanitizar k (máximo 6 para mantener chico el payload)
+    try:
+        k = max(1, min(int(k), 6))
+    except Exception:
+        k = 3
+
+    tail = groups[-k:] if groups else []
+    vals = [float(g.get("precio_promedio")) for g in tail if isinstance(g.get("precio_promedio"), (int, float))]
+    avg = (sum(vals) / len(vals)) if vals else None
+
+    return {
+        "ok": True,
+        "from": base.get("from") if isinstance(base, dict) else from_date,
+        "to": base.get("to") if isinstance(base, dict) else to_date,
+        "freq": freq,
+        "unit": "ARS/kg_canal",
+        "group_count": len(groups),
+        "avg_precio_promedio_last_k": avg,
+        "last_k_groups": tail,
+        "note": "Compact aggregation for Actions; use /siocarnes/novillo_agg for full payload."
+    }
