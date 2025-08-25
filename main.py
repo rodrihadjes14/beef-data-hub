@@ -380,26 +380,23 @@ def iso_to_sio(d: str) -> str:
     dt = datetime.strptime(d, "%Y-%m-%d")
     return f"{dt.day}/{dt.month}/{dt.year}"
 
-def convert_price_per_kg(p_vivo, unit: str):
+def convert_from_canal(p_canal, unit: str):
     """
-    Convierte un precio por kg EN PIE (vivo) a la unidad solicitada.
-    - unit == "vivo": retorna p_vivo (ARS/kg_vivo)
-    - unit == "canal": retorna p_vivo / REN_DIM (ARS/kg_canal)
+    La FUENTE base es ARS/kg_canal. Convertimos a la unidad solicitada:
+    - unit == "canal": devuelve p_canal (identidad)
+    - unit == "vivo" : devuelve p_canal * REN_DIM
     Retorna: (precio_convertido | None, unidad_str, detalle_conv)
     """
-    if p_vivo is None:
-        # sin dato, preservamos None
-        return None, "ARS/kg_vivo", "none"
-    if unit == "canal":
-        try:
-            return float(p_vivo) / REN_DIM, "ARS/kg_canal", f"divide_by_r={REN_DIM}"
-        except Exception:
-            return None, "ARS/kg_canal", "error"
-    # por defecto, vivo
+    if p_canal is None:
+        return None, "ARS/kg_canal", "none"
     try:
-        return float(p_vivo), "ARS/kg_vivo", "identity"
+        p = float(p_canal)
     except Exception:
-        return None, "ARS/kg_vivo", "error"
+        return None, "ARS/kg_canal", "error"
+    if unit == "vivo":
+        return p * REN_DIM, "ARS/kg_vivo", f"multiply_by_r={REN_DIM}"
+    return p, "ARS/kg_canal", "identity"
+
 
 
 @app.get("/siocarnes/novillo_by_date")
@@ -680,10 +677,11 @@ def siocarnes_novillo_by_date_compact(
 
     for r in rows:
         # Convertimos TODOS los campos de precio a la unidad pedida
-        pf_out, unit_out, _ = convert_price_per_kg(r.get("precio_frecuente"), unit)
-        pmin_out, _, _       = convert_price_per_kg(r.get("precio_minimo"), unit)
-        pmax_out, _, _       = convert_price_per_kg(r.get("precio_maximo"), unit)
-        pavg_out, _, _       = convert_price_per_kg(r.get("precio_promedio"), unit)
+        pf_out, unit_out, _ = convert_from_canal(r.get("precio_frecuente"), unit)
+        pmin_out, _, _      = convert_from_canal(r.get("precio_minimo"), unit)
+        pmax_out, _, _      = convert_from_canal(r.get("precio_maximo"), unit)
+        pavg_out, _, _      = convert_from_canal(r.get("precio_promedio"), unit)
+
 
         out_rows.append({
             "fecha": r.get("fecha"),
