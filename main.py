@@ -366,3 +366,110 @@ def debug_siocarnes_by_date_compare(date: str = "2025-08-18", n: int = 3):
         "first_rows_vivo": vivo_view,
         "note": "Comparación directa base canal vs convertido a vivo"
     }
+
+    
+    
+    
+# ---------------------------------------------------------------------------
+# UI Match: Promedio semanal tal cual la UI del SIO (Monitor)
+# ---------------------------------------------------------------------------
+def _parse_any_date_to_iso(s: str) -> str:
+    """
+    Acepta 'YYYY-MM-DD' o 'D/M/YYYY' y retorna ISO 'YYYY-MM-DD'.
+    """
+    s = s.strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        return s
+    # D/M/YYYY
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", s)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return datetime(y, mo, d).date().isoformat()
+    # fallback: intenta fromisoformat (puede lanzar)
+    return datetime.fromisoformat(s).date().isoformat()
+
+def _within_week(iso_day: str, iso_from: str, iso_to: str) -> bool:
+    d = datetime.fromisoformat(iso_day).date()
+    f = datetime.fromisoformat(iso_from).date()
+    t = datetime.fromisoformat(iso_to).date()
+    return f <= d <= t
+
+@app.get("/siocarnes/monitor_week")
+def siocarnes_monitor_week(
+    date: str = "2025-08-23",
+    categoria: int = 14,
+    unit: str = "vivo"  # 'vivo' (igual a UI) o 'canal' (convertido)
+):
+    """
+    Devuelve el 'promedio semanal' exactamente como lo expone la UI del SIO,
+    a partir del mismo feed (GetDatosMonitor). Si unit='canal', aplica conversión por REN_DIM.
+    """
+    # 1) Normalizar la fecha a ISO (si llega 'D/M/YYYY' la convertimos)
+    date_iso = _parse_any_date_to_iso(date)
+    dia_sio = iso_to_sio(date_iso)  # 'D/M/YYYY' para el endpoint del SIO
+
+    # 2) Llamada 'en vivo' con parámetros estilo UI (subcatergoria vacía, zona/raza omitidos)
+    params = build_sio_params(dia=dia_sio, categoria=categoria, subcategoria=None, zona=None, raza=None)
+    raw = http_get_sio(params)
+
+    # 3) Buscar la semana que contenga 'date_iso'
+    semanas = raw.get("promedioSemanal") or []
+    chosen = None
+    for w in semanas:
+        try:
+            f_iso = w.get("fechaDesdeDT")[:10]
+            t_iso = w.get("fechaHastaDT")[:10]
+            if _within_week(date_iso, f_iso, t_iso):
+                chosen = {
+                    "from": f_iso,
+                    "to": t_iso,
+                    "descripcion": w.get("descripcion"),
+                    # precio viene en 'vivo'
+                    "precio_vivo": float(w.get("precio")) if w.get("precio") is not None else None,
+                    "precio_vivo_str": w.get("precioString"),
+                }
+                break
+        except Exception:
+            continue
+
+    if not chosen:
+        # Si no hay match exacto, tomar la última semana disponible (UI suele mostrar la más reciente)
+        if semanas:
+            w = semanas[0]
+            try:
+                chosen = {
+                    "from": w.get("fechaDesdeDT")[:10],
+                    "to": w.get("fechaHastaDT")[:10],
+                    "descripcion": w.get("descripcion"),
+                    "precio_vivo": float(w.get("precio")) if w.get("precio") is not None else None,
+                    "precio_vivo_str": w.get("precioString"),
+                }
+            except Exception:
+                chosen = None
+
+    if not chosen or chosen["precio_vivo"] is None:
+        raise HTTPException(status_code=404, detail="No hay promedio semanal disponible para esa fecha.")
+
+    # 4) Convertir a 'canal' si corresponde
+    if unit == "canal":
+        precio_conv, _, unit_label = convert_from_vivo(chosen["precio_vivo"], "canal")
+    else:
+        precio_conv, _, unit_label = convert_from_vivo(chosen["precio_vivo"], "vivo")
+
+    # 5) Resumen compacto con eco de params
+    return {
+        "ok": True,
+        "ui_equivalent": "promedioSemanal",
+        "date_requested": date_iso,
+        "week": {
+            "from": chosen["from"],
+            "to": chosen["to"],
+            "descripcion": chosen["descripcion"]
+        },
+        "unit": unit_label,
+        "precio_promedio": precio_conv,
+        "precio_vivo_base": chosen["precio_vivo"],
+        "precio_vivo_str": chosen["precio_vivo_str"],
+        "params_used": params,
+        "note": "Este endpoint replica el 'promedio semanal' del Monitor SIO; la UI suele mostrar esto como referencia."
+    }
