@@ -1,0 +1,156 @@
+openapi: 3.1.0
+info:
+  title: Beef Data Hub
+  version: "0.1.0"
+  description: API para precios SIO Carnes (Novillo) normalizados y 
+proyecciones simples.
+servers:
+  - url: https://beef-data-hub.onrender.com
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    SioNovilloRow:
+      type: object
+      properties:
+        fecha: { type: string, example: "15/8/2025" }
+        precio_frecuente: { type: number, format: float, nullable: true }
+        precio_minimo: { type: number, format: float, nullable: true }
+        precio_maximo: { type: number, format: float, nullable: true }
+        precio_promedio: { type: number, format: float, nullable: true }
+        unidad: { type: string, example: "ARS/kg_canal" }
+        source: { type: string, example: "SIO Carnes" }
+    SioNovilloSeries:
+      type: object
+      properties:
+        series: { type: string, example: "siocarnes_novillo_arskg_canal" }
+        count: { type: integer, example: 6 }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SioNovilloRow" }
+    ForecastSimpleResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        model: { type: string, example: "trend_linear_simple" }
+        history_count: { type: integer }
+        h: { type: integer }
+        unit: { type: string, example: "ARS/kg_canal" }
+        last_observation: { $ref: "#/components/schemas/SioNovilloRow" }
+        point_forecast:
+          type: array
+          items: { type: number, format: float }
+        low:
+          type: array
+          items: { type: number, format: float }
+        high:
+          type: array
+          items: { type: number, format: float }
+security:
+  - ApiKeyAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []   # público
+      responses:
+        "200":
+          description: OK
+  /siocarnes/novillo_by_date:
+    get:
+      summary: Novillo SIO por fecha ISO
+      parameters:
+        - in: query
+          name: date
+          required: true
+          schema: { type: string, example: "2025-08-15" }
+      responses:
+        "200":
+          description: Serie normalizada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SioNovilloSeries" }
+  /siocarnes/novillo_range:
+    get:
+      summary: Novillo SIO por rango ISO
+      parameters:
+        - in: query
+          name: from_date
+          required: true
+          schema: { type: string, example: "2025-08-01" }
+        - in: query
+          name: to_date
+          required: true
+          schema: { type: string, example: "2025-08-31" }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, example: 200 }
+      responses:
+        "200":
+          description: Serie diaria dentro del rango
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SioNovilloSeries" }
+  /siocarnes/novillo_agg:
+    get:
+      summary: Agregación semanal/mensual
+      parameters:
+        - in: query
+          name: from_date
+          required: true
+          schema: { type: string, example: "2025-08-01" }
+        - in: query
+          name: to_date
+          required: true
+          schema: { type: string, example: "2025-08-31" }
+        - in: query
+          name: freq
+          required: false
+          schema:
+            type: string
+            enum: ["w","m"]
+            default: "w"
+      responses:
+        "200":
+          description: Promedios por semana ISO o mes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  series: { type: string }
+                  from: { type: string }
+                  to: { type: string }
+                  freq: { type: string }
+                  unit: { type: string }
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        periodo: { type: string, example: "2025-W33" }
+                        count: { type: integer }
+                        precio_promedio: { type: number, format: float }
+                        unidad: { type: string }
+                        source: { type: string }
+  /forecast/siocarnes/novillo_simple:
+    get:
+      summary: Proyección lineal simple (MVP)
+      parameters:
+        - in: query
+          name: h
+          required: false
+          schema: { type: integer, default: 30 }
+      responses:
+        "200":
+          description: Proyección con bandas
+          content:
+            application/json:
+              schema: { $ref: 
+"#/components/schemas/ForecastSimpleResponse" }
+
