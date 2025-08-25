@@ -598,3 +598,36 @@ def siocarnes_novillo_agg(from_date: str, to_date: str, freq: str = "w"):
         "unit": "ARS/kg_canal",
         "groups": out
     }
+
+    
+@app.get("/siocarnes/novillo_by_date_compact")
+def siocarnes_novillo_by_date_compact(date: str = "2025-08-15", n: int = 3):
+    """
+    Versión ultra-compacta para integraciones (customGPT):
+    - Responde solo conteo, promedio y primeras N filas.
+    - Mantiene 'ok: true' para parsers estrictos.
+    """
+    # Reusar la lógica existente (incluye caché)
+    base = siocarnes_novillo_by_date(date=date)
+    rows = base.get("data", []) if isinstance(base, dict) else []
+
+    # Sanitizar N y limitar a un máximo chico
+    n = max(0, min(int(n), 5))
+
+    # Promedio del precio_promedio (ignora nulos)
+    vals = []
+    for r in rows:
+        v = r.get("precio_promedio")
+        if isinstance(v, (int, float)):
+            vals.append(float(v))
+    avg = (sum(vals) / len(vals)) if vals else None
+
+    return {
+        "ok": True,
+        "date": date,
+        "unit": "ARS/kg_canal",
+        "count": len(rows),
+        "avg_precio_promedio": avg,
+        "first_rows": rows[:n],
+        "note": "Compact response for Actions; use /siocarnes/novillo_by_date for full payload."
+    }
