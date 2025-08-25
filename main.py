@@ -81,6 +81,8 @@ import os
 from starlette.responses import JSONResponse
 
 API_KEY = os.environ.get("BEEF_HUB_API_KEY", "dev-123")
+# Rendimiento canal (kg canal / kg vivo). Usado para convertir vivo→canal.
+REN_DIM = float(os.environ.get("BEEF_RENDIMIENTO", "0.56"))
 _PUBLIC_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
 
 @app.middleware("http")
@@ -379,6 +381,28 @@ def iso_to_sio(d: str) -> str:
     dt = datetime.strptime(d, "%Y-%m-%d")
     return f"{dt.day}/{dt.month}/{dt.year}"
 
+def convert_price_per_kg(p_vivo, unit: str):
+    """
+    Convierte un precio por kg EN PIE (vivo) a la unidad solicitada.
+    - unit == "vivo": retorna p_vivo (ARS/kg_vivo)
+    - unit == "canal": retorna p_vivo / REN_DIM (ARS/kg_canal)
+    Retorna: (precio_convertido | None, unidad_str, detalle_conv)
+    """
+    if p_vivo is None:
+        # sin dato, preservamos None
+        return None, "ARS/kg_vivo", "none"
+    if unit == "canal":
+        try:
+            return float(p_vivo) / REN_DIM, "ARS/kg_canal", f"divide_by_r={REN_DIM}"
+        except Exception:
+            return None, "ARS/kg_canal", "error"
+    # por defecto, vivo
+    try:
+        return float(p_vivo), "ARS/kg_vivo", "identity"
+    except Exception:
+        return None, "ARS/kg_vivo", "error"
+
+
 @app.get("/siocarnes/novillo_by_date")
 def siocarnes_novillo_by_date(date: str = "2025-08-15", request: Request = None):
     sio_day = iso_to_sio(date)
@@ -631,36 +655,62 @@ def siocarnes_novillo_agg(from_date: str, to_date: str, freq: str = "w"):
 
     
 @app.get("/siocarnes/novillo_by_date_compact")
-def siocarnes_novillo_by_date_compact(date: str = "2025-08-15", n: int = 3):
+def siocarnes_novillo_by_date_compact(
+    date: str = "2025-08-15",
+    n: int = 3,
+    unit: str = "vivo"  # <-- nuevo: "vivo" (default) o "canal"
+):
     """
     Versión ultra-compacta para integraciones (customGPT):
     - Responde solo conteo, promedio y primeras N filas.
-    - Mantiene 'ok: true' para parsers estrictos.
+    - Soporta unidad 'vivo' (en pie) o 'canal' (convierte usando REN_DIM).
     """
     # Reusar la lógica existente (incluye caché)
     base = siocarnes_novillo_by_date(date=date)
     rows = base.get("data", []) if isinstance(base, dict) else []
 
-    # Sanitizar N y limitar a un máximo chico
-    n = max(0, min(int(n), 5))
+    # Sanitizar N
+    try:
+        n = max(0, min(int(n), 5))
+    except Exception:
+        n = 3
 
-    # Promedio del precio_promedio (ignora nulos)
+    out_rows = []
     vals = []
+    unit_out = "ARS/kg_vivo"  # se actualiza en convert_price_per_kg
+
     for r in rows:
-        v = r.get("precio_promedio")
-        if isinstance(v, (int, float)):
-            vals.append(float(v))
+        # Convertimos TODOS los campos de precio a la unidad pedida
+        pf_out, unit_out, _ = convert_price_per_kg(r.get("precio_frecuente"), unit)
+        pmin_out, _, _       = convert_price_per_kg(r.get("precio_minimo"), unit)
+        pmax_out, _, _       = convert_price_per_kg(r.get("precio_maximo"), unit)
+        pavg_out, _, _       = convert_price_per_kg(r.get("precio_promedio"), unit)
+
+        out_rows.append({
+            "fecha": r.get("fecha"),
+            "precio_frecuente": pf_out,
+            "precio_minimo": pmin_out,
+            "precio_maximo": pmax_out,
+            "precio_promedio": pavg_out,
+            "unidad": unit_out,
+            "source": r.get("source", "SIO Carnes"),
+        })
+
+        if isinstance(pavg_out, (int, float)):
+            vals.append(float(pavg_out))
+
     avg = (sum(vals) / len(vals)) if vals else None
 
     return {
         "ok": True,
         "date": date,
-        "unit": "ARS/kg_canal",
-        "count": len(rows),
+        "unit": unit_out,
+        "count": len(out_rows),
         "avg_precio_promedio": avg,
-        "first_rows": rows[:n],
-        "note": "Compact response for Actions; use /siocarnes/novillo_by_date for full payload."
+        "first_rows": out_rows[:n],
+        "note": "Fuente SIO: precios reportados en pie; conversión opcional a 'canal' vía BEEF_RENDIMIENTO."
     }
+
 
     
 @app.get("/siocarnes/novillo_agg_compact")
