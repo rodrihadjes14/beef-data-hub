@@ -802,3 +802,71 @@ def siocarnes_novillo_by_date_compact_v2(
 ):
     # Reusamos la lógica del endpoint original
     return siocarnes_novillo_by_date_compact(date=date, n=n, unit=unit)
+
+
+
+@app.get("/debug/siocarnes/by_date_compare")
+def debug_siocarnes_by_date_compare(
+    date: str = "2025-08-18",
+    n: int = 3
+):
+    """
+    Devuelve, para una fecha ISO, la misma ventana de días que usa /siocarnes/novillo_by_date
+    en las dos unidades: 'canal' (base) y 'vivo' (convertido con REN_DIM).
+    Sirve para comparar exactamente qué está almacenado y qué convierte la API.
+    """
+    # Reutilizamos la lógica ya existente (usa caché interno)
+    base = siocarnes_novillo_by_date(date=date)
+    rows = base.get("data", []) if isinstance(base, dict) else []
+
+    # Sanitizar N
+    try:
+        n = max(0, min(int(n), 5))
+    except Exception:
+        n = 3
+
+    # Tomar hasta N filas del frente (orden que ya devuelve tu endpoint)
+    head = rows[:n]
+
+    # Armar vistas lado a lado
+    canal_view = []
+    vivo_view = []
+
+    for r in head:
+        # BASE: se asume que r.* están en kg canal (tu normalización actual)
+        canal_view.append({
+            "fecha": r.get("fecha"),
+            "precio_frecuente": r.get("precio_frecuente"),
+            "precio_minimo": r.get("precio_minimo"),
+            "precio_maximo": r.get("precio_maximo"),
+            "precio_promedio": r.get("precio_promedio"),
+            "unidad": "ARS/kg_canal",
+            "source": r.get("source", "SIO Carnes")
+        })
+
+        # CONVERSIÓN a vivo (canal -> vivo): p_vivo = p_canal * REN_DIM
+        pf_v, _, _   = convert_from_canal(r.get("precio_frecuente"), "vivo")
+        pmin_v, _, _ = convert_from_canal(r.get("precio_minimo"), "vivo")
+        pmax_v, _, _ = convert_from_canal(r.get("precio_maximo"), "vivo")
+        pavg_v, _, _ = convert_from_canal(r.get("precio_promedio"), "vivo")
+
+        vivo_view.append({
+            "fecha": r.get("fecha"),
+            "precio_frecuente": pf_v,
+            "precio_minimo": pmin_v,
+            "precio_maximo": pmax_v,
+            "precio_promedio": pavg_v,
+            "unidad": "ARS/kg_vivo",
+            "source": r.get("source", "SIO Carnes")
+        })
+
+    return {
+        "ok": True,
+        "date": date,
+        "ren_dim": REN_DIM,
+        "base_unit_assumption": "ARS/kg_canal",  # base de tu normalización actual
+        "count_in_window": len(rows),
+        "first_rows_canal": canal_view,
+        "first_rows_vivo": vivo_view,
+        "note": "Comparación directa desde tu caché normalizado (base canal) con conversión a vivo vía REN_DIM."
+    }
