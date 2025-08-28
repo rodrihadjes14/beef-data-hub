@@ -33,7 +33,7 @@ HTTP_UA = os.environ.get("HTTP_UA", "Mozilla/5.0 (compatible; BeefDataHub/1.0; +
 
 MAG_URL_PRIMARY = os.environ.get(
     "MAG_URL_PRIMARY",
-    "https://www.mercadoagroganadero.com.ar/dll/hacienda1.dll/haciinfo000502"  # Precios por Categoría (RUCA)
+    "https://www.mercadoagroganadero.com.ar/dll/hacienda1.dll/haciinfo000002"  # Precios por Categoría (RUCA)
 )
 MAG_URL_FALLBACK = os.environ.get(
     "MAG_URL_FALLBACK",
