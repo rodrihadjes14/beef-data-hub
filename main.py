@@ -227,7 +227,7 @@ ALLOWED_PREFIXES = (
     "/static",  # si servís estáticos
     "/assets",  # si tu UI los usa
 )
-)
+
 
 @app.middleware("http")
 async def api_key_guard(request: Request, call_next):
