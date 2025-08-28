@@ -40,44 +40,72 @@ MAG_URL_FALLBACK = os.environ.get(
     "https://ganaderiaynegocios.com/precios-mercado-agroganadero-canuelas/"     # Agregador confiable
 )
 
-_NUM_RE = r"(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)"  # 3.123,45 o 2.900 etc.
+_NUM_RE = r"(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,3})?)"
+
 
 def _to_float_ars(s: str) -> float:
-    s = s.strip().replace(".", "").replace(",", ".")
-    return float(s)
+    s = s.strip()
+    if not s:
+        return float("nan")
+    # Si aparecen ambos, el ÚLTIMO es decimal.
+    last_dot = s.rfind(".")
+    last_com = s.rfind(",")
+    if last_dot == -1 and last_com == -1:
+        # solo dígitos
+        return float(s)
+    if last_dot > last_com:
+        # decimal = '.', miles = ','
+        s = s.replace(",", "")
+        return float(s)
+    else:
+        # decimal = ',', miles = '.'
+        s = s.replace(".", "").replace(",", ".")
+        return float(s)
+
 
 def _extract_promedio_novillos_from_primary(html: str) -> float | None:
     """
-    Busca en la página oficial del MAG una fila 'NOVILLOS' y extrae el 'Promedio' ($/kg vivo).
+    Busca en la página oficial del MAG filas que contengan 'NOVILLOS' y captura
+    los tres primeros números de la fila (Mín, Máx, Prom). Promedia los 'Prom'.
     """
     txt = " ".join(html.split())
-    patterns = [
-        rf"NOVILLOS.*?M[ií]nimo.*?{_NUM_RE}.*?M[aá]ximo.*?{_NUM_RE}.*?Prom(?:\.|edio)?\s*{_NUM_RE}",
-        rf"NOVILLOS[^<]*{_NUM_RE}[^<]*{_NUM_RE}[^<]*{_NUM_RE}"
-    ]
-    for pat in patterns:
-        m = re.search(pat, txt, re.IGNORECASE)
-        if m:
-            prom = m.groups()[-1]  # último número capturado
-            return _to_float_ars(prom)
-    return None
-
-def _extract_promedio_novillos_from_fallback(html: str) -> float | None:
-    """
-    En el fallback (agregador) aparecen filas 'NOVILLOS ...' con Min/Max/Promedio.
-    Tomamos el promedio simple de los 'Promedios' de NOVILLOS.
-    """
-    txt = " ".join(html.split())
-    rows = re.findall(rf"(NOVILLOS[^<]{{0,120}}?){_NUM_RE}[^<]{{0,40}}?{_NUM_RE}[^<]{{0,40}}?{_NUM_RE}", txt, re.IGNORECASE)
+    # Capturar filas que contengan 'NOVILLOS' seguidas de al menos 3 números
+    rows = re.findall(rf"NOVILLOS[^A-Za-z0-9]{{0,120}}?{_NUM_RE}[^A-Za-z0-9]{{0,60}}?{_NUM_RE}[^A-Za-z0-9]{{0,60}}?{_NUM_RE}", 
+                      txt, flags=re.IGNORECASE)
     proms: list[float] = []
     for row in rows:
         try:
-            proms.append(_to_float_ars(row[-1]))  # tercer número: 'Promedio'
+            # Tomamos el 3er número (min, max, prom)
+            prom = _to_float_ars(row[-1])
+            if prom == prom:  # no NaN
+                proms.append(prom)
         except Exception:
             continue
     if proms:
         return round(sum(proms) / len(proms), 2)
     return None
+
+
+def _extract_promedio_novillos_from_fallback(html: str) -> float | None:
+    """
+    En el fallback (agregador) hay varias filas 'NOVILLOS ...' con Min/Max/Prom/Mediana.
+    Capturamos los tres primeros números y tomamos el 3ro (Prom). Promediamos si hay varias.
+    """
+    txt = " ".join(html.split())
+    rows = re.findall(rf"NOVILLOS[^A-Za-z0-9]{{0,120}}?{_NUM_RE}[^A-Za-z0-9]{{0,60}}?{_NUM_RE}[^A-Za-z0-9]{{0,60}}?{_NUM_RE}",
+                      txt, flags=re.IGNORECASE)
+    proms: list[float] = []
+    for row in rows:
+        try:
+            prom = _to_float_ars(row[-1])
+            if prom == prom:
+                proms.append(prom)
+        except Exception:
+            continue
+    if proms:
+        return round(sum(proms) / len(proms), 2)
+    return None
+
 
 def _fetch_mag_promedio_novillo_vivo() -> tuple[float | None, str, str]:
     """
