@@ -1,6 +1,5 @@
 # checks_mag.py
 from fastapi import APIRouter, Header, HTTPException, Depends
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from datetime import date as Date
 import os, re, httpx
@@ -11,7 +10,6 @@ router = APIRouter(prefix="/checks", tags=["checks"])
 def require_api_key(x_api_key: str | None = Header(default=None)):
     expected = os.environ.get("BEEF_HUB_API_KEY", "")
     if not expected or x_api_key != expected:
-        # Usamos JSON limpio en vez de excepción para no llenar logs
         raise HTTPException(status_code=401, detail="Invalid or missing x-api-key")
 
 # --- Modelos de respuesta ---
@@ -45,52 +43,45 @@ MAG_URL_FALLBACK = os.environ.get(
 _NUM_RE = r"(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)"  # 3.123,45 o 2.900 etc.
 
 def _to_float_ars(s: str) -> float:
-    s = s.strip()
-    s = s.replace(".", "").replace(",", ".")
+    s = s.strip().replace(".", "").replace(",", ".")
     return float(s)
 
 def _extract_promedio_novillos_from_primary(html: str) -> float | None:
     """
-    Busca en la página oficial del MAG una fila 'NOVILLOS ...' y extrae el 'Promedio' ($/kg vivo).
-    El layout puede cambiar; probamos varios patrones.
+    Busca en la página oficial del MAG una fila 'NOVILLOS' y extrae el 'Promedio' ($/kg vivo).
     """
-    txt = " ".join(html.split())  # colapsar espacios
-    # Patrón genérico: ... NOVILLOS ... Min ... Max ... Promedio <num> ...
+    txt = " ".join(html.split())
     patterns = [
         rf"NOVILLOS.*?M[ií]nimo.*?{_NUM_RE}.*?M[aá]ximo.*?{_NUM_RE}.*?Prom(?:\.|edio)?\s*{_NUM_RE}",
-        rf"NOVILLOS[^<]*{_NUM_RE}[^<]*{_NUM_RE}[^<]*{_NUM_RE}"  # fila con 3 números seguidos (min/max/prom)
+        rf"NOVILLOS[^<]*{_NUM_RE}[^<]*{_NUM_RE}[^<]*{_NUM_RE}"
     ]
     for pat in patterns:
         m = re.search(pat, txt, re.IGNORECASE)
         if m:
-            # Tomamos el último número capturado como 'Promedio'
-            prom = m.groups()[-1]
+            prom = m.groups()[-1]  # último número capturado
             return _to_float_ars(prom)
     return None
 
 def _extract_promedio_novillos_from_fallback(html: str) -> float | None:
     """
-    En el fallback (agregador) aparecen varias filas 'NOVILLOS ...' con Min/Max/Promedio.
-    Tomamos el promedio de los 'Promedios' listados para NOVILLOS.
+    En el fallback (agregador) aparecen filas 'NOVILLOS ...' con Min/Max/Promedio.
+    Tomamos el promedio simple de los 'Promedios' de NOVILLOS.
     """
     txt = " ".join(html.split())
-    # filas que contengan 'NOVILLOS' y luego tres números; el 3ro lo tomamos como 'Promedio'.
     rows = re.findall(rf"(NOVILLOS[^<]{{0,120}}?){_NUM_RE}[^<]{{0,40}}?{_NUM_RE}[^<]{{0,40}}?{_NUM_RE}", txt, re.IGNORECASE)
     proms: list[float] = []
     for row in rows:
         try:
-            prom = row[-1]  # tercer número capturado
-            proms.append(_to_float_ars(prom))
+            proms.append(_to_float_ars(row[-1]))  # tercer número: 'Promedio'
         except Exception:
             continue
     if proms:
-        # promedio simple de los 'Promedios' de NOVILLOS
         return round(sum(proms) / len(proms), 2)
     return None
 
 def _fetch_mag_promedio_novillo_vivo() -> tuple[float | None, str, str]:
     """
-    Devuelve (prom_vivo, source, note). Intenta sitio oficial y si falla, recurre al fallback.
+    Devuelve (prom_vivo, source, note). Intenta sitio oficial y, si falla, usa fallback.
     """
     headers = {"User-Agent": HTTP_UA}
     last_err = None
@@ -131,7 +122,6 @@ async def get_mag_to_canal(date: Date, rend: float = 0.56):
     """
     prom_vivo, source, note = _fetch_mag_promedio_novillo_vivo()
     if not prom_vivo:
-        # No rompemos: devolvemos un rango vacío informativo
         raise HTTPException(status_code=502, detail=f"No se pudo leer MAG. {note}")
 
     canal_avg = prom_vivo / rend
