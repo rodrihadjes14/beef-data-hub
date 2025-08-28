@@ -138,6 +138,45 @@ def _fetch_mag_promedio_novillo_vivo() -> tuple[float | None, str, str]:
 
     return None, "MAG (indisponible)", f"Error: {last_err!r}"
 
+# --- Endpoint de diagnóstico: descarga HTML y muestra señales básicas ---
+@router.get("/_debug_mag_html", dependencies=[Depends(require_api_key)])
+async def debug_mag_html():
+    headers = {"User-Agent": HTTP_UA}
+    results = []
+
+    for label, url in [("primary", MAG_URL_PRIMARY), ("fallback", MAG_URL_FALLBACK)]:
+        info = {"which": label, "url": url}
+        try:
+            with httpx.Client(timeout=HTTP_TIMEOUT, headers=headers, follow_redirects=True) as client:
+                r = client.get(url)
+            info["status_code"] = r.status_code
+            info["content_type"] = r.headers.get("content-type", "")
+            text = r.text or ""
+            info["length"] = len(text)
+
+            # Normalizamos para inspección
+            txt = " ".join(text.split())
+            info["has_novillos"] = ("NOVILLOS" in txt.upper())
+
+            # Extraemos algunos números como muestra
+            nums = re.findall(_NUM_RE, txt)
+            # Nos quedamos con los primeros 8 para no inflar la respuesta
+            info["sample_numbers"] = nums[:8]
+
+            # Devolvemos un snippet acotado (primeros 400 caracteres) para revisar estructura
+            info["snippet"] = txt[:400]
+        except Exception as e:
+            info["error"] = repr(e)
+
+        results.append(info)
+
+    return {
+        "ok": True,
+        "note": "Diagnostic only — verify status, length, presence of NOVILLOS, numbers matched by regex.",
+        "results": results,
+    }
+
+
 @router.get(
     "/mag_to_canal",
     response_model=MagToCanalResponse,
