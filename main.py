@@ -47,6 +47,8 @@ app.add_middleware(
 
 app.include_router(checks_router)
 
+
+
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
@@ -212,23 +214,35 @@ def pick_daily_aggregate(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]
 # Auth simple por header x-api-key (excepto /health)
 # ----------------------------------------------------------------------------
 
+ALLOWED_EXACT = {
+    "/health",
+    "/openapi.json",
+    "/docs",
+    "/redoc",
+    "/docs/oauth2-redirect",
+    "/favicon.ico",
+}
+ALLOWED_PREFIXES = (
+    "/docs",    # assets de Swagger UI
+    "/static",  # si servís estáticos
+    "/assets",  # si tu UI los usa
+)
+)
+
 @app.middleware("http")
 async def api_key_guard(request: Request, call_next):
     path = request.url.path
-    key = request.headers.get("x-api-key")
-    key_present = key is not None
-    # /health es público
-    if path == "/health":
-        resp = await call_next(request)
-        print(f"[AUTH] path=/health key_present={key_present} ua={request.headers.get('user-agent','')[:40]}")
-        return resp
 
-    # resto requiere key válida
-    if key != API_KEY:
-        print(f"[AUTH-FAIL] path={path} key_present={key_present} ua={request.headers.get('user-agent','')[:40]}")
+    # Rutas públicas (no requieren x-api-key)
+    if path in ALLOWED_EXACT or any(path.startswith(p) for p in ALLOWED_PREFIXES):
+        return await call_next(request)
+
+    # Resto: exigir x-api-key
+    api_key = request.headers.get("x-api-key")
+    expected = API_KEY
+    if not expected or api_key != expected:
         raise HTTPException(status_code=401, detail="missing or invalid x-api-key")
 
-    print(f"[AUTH] path={path} key_present={key_present} ua={request.headers.get('user-agent','')[:40]}")
     return await call_next(request)
 
 # ----------------------------------------------------------------------------
