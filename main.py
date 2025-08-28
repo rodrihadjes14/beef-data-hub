@@ -3,6 +3,7 @@ import re
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from checks_mag import router as checks_router
 
 import httpx
 from fastapi import FastAPI, Request, HTTPException
@@ -43,6 +44,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(checks_router)
 
 # ----------------------------------------------------------------------------
 # Helpers
