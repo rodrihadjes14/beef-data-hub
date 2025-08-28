@@ -155,6 +155,65 @@ paths:
 "#/components/schemas/ForecastSimpleResponse" }
 
 
+paths:
+  /checks/ipcva_mediares:
+    get:
+      operationId: getIpcvaMediaRes
+      summary: Benchmark mensual IPCVA de media res
+      parameters:
+        - in: query
+          name: plaza
+          schema: { type: string, example: "AMBA" }
+        - in: query
+          name: mes
+          required: true
+          schema: { type: string, pattern: "^\\d{4}-\\d{2}$", example: "2025-08" }
+      responses:
+        "200":
+          description: OK
+
+  /checks/mag_to_canal:
+    get:
+      operationId: getMagToCanal
+      summary: Conversión MAG (pie) → canal por rendimiento
+      parameters:
+        - in: query
+          name: date
+          required: true
+          schema: { type: string, format: date }
+        - in: query
+          name: rend
+          schema: { type: number, default: 0.56 }
+      responses:
+        "200":
+          description: OK
+
+  /checks/provider_pricepages:
+    get:
+      operationId: getProviderPricePages
+      summary: Últimos precios publicados por proveedores (media res)
+      parameters:
+        - in: query
+          name: provider
+          schema: { type: string }
+        - in: query
+          name: zona
+          schema: { type: string, enum: ["CABA", "GBA"] }
+      responses:
+        "200":
+          description: OK
+
+  /checks/camya_refs:
+    get:
+      operationId: getCamyaRefs
+      summary: Referencias/Comunicados CAMyA sobre media res
+      parameters:
+        - in: query
+          name: date_from
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: OK
 
 
 
