@@ -8,6 +8,8 @@ from checks_mag import router as checks_router
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
 
 # ----------------------------------------------------------------------------
 # Config
@@ -213,8 +215,8 @@ def pick_daily_aggregate(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]
 # ----------------------------------------------------------------------------
 # Auth simple por header x-api-key (excepto /health)
 # ----------------------------------------------------------------------------
-
 ALLOWED_EXACT = {
+    "/",
     "/health",
     "/openapi.json",
     "/docs",
@@ -229,6 +231,7 @@ ALLOWED_PREFIXES = (
 )
 
 
+
 @app.middleware("http")
 async def api_key_guard(request: Request, call_next):
     path = request.url.path
@@ -237,13 +240,14 @@ async def api_key_guard(request: Request, call_next):
     if path in ALLOWED_EXACT or any(path.startswith(p) for p in ALLOWED_PREFIXES):
         return await call_next(request)
 
-    # Resto: exigir x-api-key
+    # Resto: exigir x-api-key válida
     api_key = request.headers.get("x-api-key")
     expected = API_KEY
     if not expected or api_key != expected:
-        raise HTTPException(status_code=401, detail="missing or invalid x-api-key")
+        return JSONResponse(status_code=401, content={"detail": "missing or invalid x-api-key"})
 
     return await call_next(request)
+
 
 # ----------------------------------------------------------------------------
 # Endpoints
